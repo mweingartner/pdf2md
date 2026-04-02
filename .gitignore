@@ -1,0 +1,7 @@
+.build/
+.DS_Store
+*.app
+.claude/plans/
+.claude/projects/
+.claude/todos/
+.claude/memory/
