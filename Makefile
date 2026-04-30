@@ -9,7 +9,7 @@ APP_ENTITLEMENTS = Scripts/PDF2MDMonitor.entitlements
 WORKFLOW_NAME = Convert to Markdown
 SERVICES_DIR = $(HOME)/Library/Services
 
-.PHONY: all build build-app verify install uninstall clean
+.PHONY: all build build-app verify package install uninstall clean
 
 all: build build-app
 
@@ -30,6 +30,9 @@ build-app:
 
 verify: build build-app
 	bash Scripts/smoke-test.sh
+
+package: build build-app
+	bash Scripts/package-release.sh
 
 install: build build-app
 	@mkdir -p $(USER_INSTALL_DIR)
