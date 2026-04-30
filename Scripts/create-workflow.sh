@@ -4,7 +4,6 @@
 # and installs it to ~/Library/Services/.
 #
 # The workflow receives PDF files selected in Finder and passes them to pdf2md.
-# A binary-presence guard (Security H-2) is included in the embedded shell script.
 
 set -euo pipefail
 
@@ -13,6 +12,8 @@ SERVICES_DIR="${HOME}/Library/Services"
 BINARY_PATH="${PDF2MD_PATH:-/usr/local/bin/pdf2md}"
 WORKFLOW_DIR="${SERVICES_DIR}/${WORKFLOW_NAME}.workflow"
 CONTENTS_DIR="${WORKFLOW_DIR}/Contents"
+RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "Creating workflow bundle at: ${WORKFLOW_DIR}"
 
@@ -20,17 +21,27 @@ echo "Creating workflow bundle at: ${WORKFLOW_DIR}"
 rm -rf "${WORKFLOW_DIR}"
 
 # Create directory structure
-mkdir -p "${CONTENTS_DIR}"
+mkdir -p "${RESOURCES_DIR}"
 
 # -------------------------------------------------------------------------
-# Info.plist
-# Declares this as a Finder Quick Action that accepts PDF files.
+# Info.plist — modeled after Apple's own working Quick Actions
+# Must include CFBundle keys for macOS to recognize the workflow bundle.
 # -------------------------------------------------------------------------
 cat > "${CONTENTS_DIR}/Info.plist" << 'INFOPLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleName</key>
+	<string>Convert to Markdown</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en_US</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.pdf2md.convert-to-markdown</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
@@ -57,18 +68,16 @@ cat > "${CONTENTS_DIR}/Info.plist" << 'INFOPLIST'
 INFOPLIST
 
 # -------------------------------------------------------------------------
-# document.wflow
-# Defines the Automator workflow with a single "Run Shell Script" action.
-# Input is passed as arguments so each selected file is processed individually.
-# The embedded shell script includes a binary-presence guard (Security H-2).
+# document.wflow — Automator workflow definition
+# Single "Run Shell Script" action, input passed as arguments.
 # -------------------------------------------------------------------------
-cat > "${CONTENTS_DIR}/document.wflow" << 'WFLOW'
+cat > "${RESOURCES_DIR}/document.wflow" << 'WFLOW'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>AMApplicationBuild</key>
-	<string>521.1</string>
+	<string>523</string>
 	<key>AMApplicationVersion</key>
 	<string>2.10</string>
 	<key>AMDocumentVersion</key>
@@ -112,8 +121,6 @@ cat > "${CONTENTS_DIR}/document.wflow" << 'WFLOW'
 				<dict>
 					<key>Container</key>
 					<string>List</string>
-					<key>Optional</key>
-					<true/>
 					<key>Types</key>
 					<array>
 						<string>com.apple.cocoa.path</string>
@@ -129,12 +136,20 @@ cat > "${CONTENTS_DIR}/document.wflow" << 'WFLOW'
 					<string>#!/bin/zsh
 PDF2MD="BINARY_PATH_PLACEHOLDER"
 if [ ! -x "$PDF2MD" ]; then
-    osascript -e 'display dialog "pdf2md is not installed. Please run make install." buttons {"OK"} default button "OK" with icon stop'
+    osascript -e 'display dialog "pdf2md is not installed. Run: cd PROJECT_DIR_PLACEHOLDER &amp;&amp; make install" buttons {"OK"} default button "OK" with icon stop'
     exit 1
 fi
+status=0
 for f in "$@"; do
-    "$PDF2MD" "$f"
-done</string>
+    "$PDF2MD" "$f" 2>/dev/null
+    if [ $? -eq 0 ]; then
+        osascript -e "display notification \"Converted: $(basename "$f" .pdf).md\" with title \"PDF2MD\""
+    else
+        status=1
+        osascript -e "display notification \"Failed to convert: $(basename "$f")\" with title \"PDF2MD\" subtitle \"Error\""
+    fi
+done
+exit $status</string>
 					<key>CheckedForUserDefaultShell</key>
 					<true/>
 					<key>inputMethod</key>
@@ -259,28 +274,14 @@ done</string>
 	<dict/>
 	<key>workflowMetaData</key>
 	<dict>
-		<key>applicationBundleIDsByPath</key>
-		<dict/>
-		<key>applicationPathsByBundleID</key>
-		<dict/>
-		<key>inputTypeIdentifier</key>
-		<string>com.apple.Automator.fileSystemObject.pdf</string>
-		<key>outputTypeIdentifier</key>
-		<string>com.apple.Automator.nothing</string>
-		<key>presentationMode</key>
-		<integer>15</integer>
-		<key>processesInput</key>
-		<integer>0</integer>
+		<key>serviceApplicationBundleID</key>
+		<string>com.apple.finder</string>
+		<key>serviceApplicationPath</key>
+		<string>/System/Library/CoreServices/Finder.app</string>
 		<key>serviceInputTypeIdentifier</key>
 		<string>com.apple.Automator.fileSystemObject.pdf</string>
 		<key>serviceOutputTypeIdentifier</key>
 		<string>com.apple.Automator.nothing</string>
-		<key>serviceProcessesInput</key>
-		<integer>0</integer>
-		<key>systemImageName</key>
-		<string>NSActionTemplate</string>
-		<key>useAutomaticInputType</key>
-		<false/>
 		<key>workflowTypeIdentifier</key>
 		<string>com.apple.Automator.servicesMenu</string>
 	</dict>
@@ -288,10 +289,35 @@ done</string>
 </plist>
 WFLOW
 
+cat > "${CONTENTS_DIR}/version.plist" << 'VERSIONPLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BuildVersion</key>
+	<string>1</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>ProjectName</key>
+	<string>PDF2MD</string>
+	<key>SourceVersion</key>
+	<string>1</string>
+</dict>
+</plist>
+VERSIONPLIST
+
 # Substitute the actual binary path into the workflow
-sed -i '' "s|BINARY_PATH_PLACEHOLDER|${BINARY_PATH}|g" "${CONTENTS_DIR}/document.wflow"
+sed -i '' "s|BINARY_PATH_PLACEHOLDER|${BINARY_PATH}|g" "${RESOURCES_DIR}/document.wflow"
+sed -i '' "s|PROJECT_DIR_PLACEHOLDER|${PROJECT_DIR}|g" "${RESOURCES_DIR}/document.wflow"
+
+# Validate the plists
+plutil -lint "${CONTENTS_DIR}/Info.plist" || { echo "Error: Info.plist is invalid"; exit 1; }
+plutil -lint "${RESOURCES_DIR}/document.wflow" || { echo "Error: document.wflow is invalid"; exit 1; }
+plutil -lint "${CONTENTS_DIR}/version.plist" || { echo "Error: version.plist is invalid"; exit 1; }
 
 echo "Workflow bundle created successfully."
-echo "To enable the Quick Action, you may need to:"
-echo "  System Settings > Privacy & Security > Extensions > Finder Extensions"
-echo "  (or it may appear automatically in Finder > Right-click > Quick Actions)"
+echo ""
+echo "If the Quick Action doesn't appear in Finder's right-click menu:"
+echo "  1. Open System Settings > Privacy & Security > Extensions > Finder"
+echo "  2. Enable 'Convert to Markdown'"
+echo "  3. Or try: killall Finder"
